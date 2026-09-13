@@ -1,0 +1,830 @@
+openapi: 3.0.3
+info:
+  title: armory_api
+  description: >
+    Бэкенд для armory_web (ПР4 «Подключение REST API»). Реализует тот же
+    контракт, что учебный mock-сервер (КОНТРАКТ-API.md), для домена
+    оружейного магазина вместо библиотеки.
+  version: "1.0"
+servers:
+  - url: http://localhost:8080/api
+
+tags:
+  - name: weapons
+    description: Оружие — М:1 к Manufacturer, М:М к Category и Designer
+  - name: manufacturers
+    description: Производители — 1:М к Weapon
+  - name: categories
+    description: Категории — М:М к Weapon
+  - name: designers
+    description: Конструкторы — М:М к Weapon
+  - name: clients
+    description: Покупатели с лицензией на оружие (поля лицензии внутри Client)
+  - name: diagnostics
+    description: Служебные ручки — как у учебного mock-server.js
+
+paths:
+  /__health:
+    get:
+      tags: [diagnostics]
+      summary: Проверка живости сервера
+      responses:
+        "200":
+          description: Сервер отвечает
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  time: { type: string, format: date-time }
+
+  /__reset:
+    post:
+      tags: [diagnostics]
+      summary: Стереть все данные и пересеять исходный набор
+      responses:
+        "200":
+          description: Данные восстановлены
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorMessage" }
+
+  /weapons:
+    get:
+      tags: [weapons]
+      summary: Список оружия
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - name: categoryId
+          in: query
+          schema: { type: integer }
+        - name: manufacturerId
+          in: query
+          schema: { type: integer }
+        - name: designerId
+          in: query
+          schema: { type: integer }
+        - name: yearFrom
+          in: query
+          schema: { type: integer }
+        - name: yearTo
+          in: query
+          schema: { type: integer }
+        - name: sort
+          in: query
+          description: "Поле и направление через запятую, например year,desc. Поля: name, year, price."
+          schema: { type: string, example: "name,asc" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+        - $ref: "#/components/parameters/Deleted"
+      responses:
+        "200":
+          description: Страница результатов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WeaponPage" }
+    post:
+      tags: [weapons]
+      summary: Создать оружие
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WeaponInput" }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Weapon" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /weapons/bulk-delete:
+    post:
+      tags: [weapons]
+      summary: Массовое логическое удаление
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkDeleteRequest" }
+      responses:
+        "200":
+          description: Число удалённых записей
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkDeleteResponse" }
+
+  /weapons/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [weapons]
+      summary: Получить оружие по id
+      responses:
+        "200":
+          description: Найдено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Weapon" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [weapons]
+      summary: Изменить оружие
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WeaponInput" }
+      responses:
+        "200":
+          description: Изменено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Weapon" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [weapons]
+      summary: Удалить оружие (логически; ?hard=true — физически)
+      parameters:
+        - $ref: "#/components/parameters/Hard"
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /weapons/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [weapons]
+      summary: Восстановить логически удалённую запись
+      responses:
+        "200":
+          description: Восстановлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Weapon" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /manufacturers:
+    get:
+      tags: [manufacturers]
+      summary: Список производителей
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - name: sort
+          in: query
+          description: "Поля: name, country, founded."
+          schema: { type: string, example: "name,asc" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+        - $ref: "#/components/parameters/Deleted"
+      responses:
+        "200":
+          description: Страница результатов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ManufacturerPage" }
+    post:
+      tags: [manufacturers]
+      summary: Создать производителя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManufacturerInput" }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Manufacturer" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /manufacturers/bulk-delete:
+    post:
+      tags: [manufacturers]
+      summary: Массовое логическое удаление
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkDeleteRequest" }
+      responses:
+        "200":
+          description: Число удалённых записей
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkDeleteResponse" }
+
+  /manufacturers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [manufacturers]
+      summary: Получить производителя по id
+      responses:
+        "200":
+          description: Найдено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Manufacturer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [manufacturers]
+      summary: Изменить производителя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ManufacturerInput" }
+      responses:
+        "200":
+          description: Изменено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Manufacturer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [manufacturers]
+      summary: >
+        Удалить производителя (логически; ?hard=true — физически).
+        409, если на него ссылается активное оружие.
+      parameters:
+        - $ref: "#/components/parameters/Hard"
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /manufacturers/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [manufacturers]
+      summary: Восстановить логически удалённую запись
+      responses:
+        "200":
+          description: Восстановлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Manufacturer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /categories:
+    get:
+      tags: [categories]
+      summary: Список категорий
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - name: sort
+          in: query
+          description: "Поле: name."
+          schema: { type: string, example: "name,asc" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+        - $ref: "#/components/parameters/Deleted"
+      responses:
+        "200":
+          description: Страница результатов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CategoryPage" }
+    post:
+      tags: [categories]
+      summary: Создать категорию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryInput" }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /categories/bulk-delete:
+    post:
+      tags: [categories]
+      summary: Массовое логическое удаление
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkDeleteRequest" }
+      responses:
+        "200":
+          description: Число удалённых записей
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkDeleteResponse" }
+
+  /categories/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [categories]
+      summary: Получить категорию по id
+      responses:
+        "200":
+          description: Найдено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [categories]
+      summary: Изменить категорию
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryInput" }
+      responses:
+        "200":
+          description: Изменено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [categories]
+      summary: >
+        Удалить категорию (логически; ?hard=true — физически).
+        409, если на неё ссылается активное оружие.
+      parameters:
+        - $ref: "#/components/parameters/Hard"
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /categories/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [categories]
+      summary: Восстановить логически удалённую запись
+      responses:
+        "200":
+          description: Восстановлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Category" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /designers:
+    get:
+      tags: [designers]
+      summary: Список конструкторов
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - name: sort
+          in: query
+          description: "Поля: fullName, country, activeSince."
+          schema: { type: string, example: "fullName,asc" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+        - $ref: "#/components/parameters/Deleted"
+      responses:
+        "200":
+          description: Страница результатов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DesignerPage" }
+    post:
+      tags: [designers]
+      summary: Создать конструктора
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DesignerInput" }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Designer" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /designers/bulk-delete:
+    post:
+      tags: [designers]
+      summary: Массовое логическое удаление
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkDeleteRequest" }
+      responses:
+        "200":
+          description: Число удалённых записей
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkDeleteResponse" }
+
+  /designers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [designers]
+      summary: Получить конструктора по id
+      responses:
+        "200":
+          description: Найдено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Designer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [designers]
+      summary: Изменить конструктора
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DesignerInput" }
+      responses:
+        "200":
+          description: Изменено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Designer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [designers]
+      summary: >
+        Удалить конструктора (логически; ?hard=true — физически).
+        409, если с ним связано активное оружие.
+      parameters:
+        - $ref: "#/components/parameters/Hard"
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /designers/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [designers]
+      summary: Восстановить логически удалённую запись
+      responses:
+        "200":
+          description: Восстановлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Designer" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /clients:
+    get:
+      tags: [clients]
+      summary: Список покупателей
+      parameters:
+        - $ref: "#/components/parameters/Search"
+        - name: sort
+          in: query
+          description: "Поля: fullName, email."
+          schema: { type: string, example: "fullName,asc" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Size"
+        - $ref: "#/components/parameters/Deleted"
+      responses:
+        "200":
+          description: Страница результатов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClientPage" }
+    post:
+      tags: [clients]
+      summary: Создать покупателя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClientInput" }
+      responses:
+        "201":
+          description: Создано
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Client" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+
+  /clients/bulk-delete:
+    post:
+      tags: [clients]
+      summary: Массовое логическое удаление
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BulkDeleteRequest" }
+      responses:
+        "200":
+          description: Число удалённых записей
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BulkDeleteResponse" }
+
+  /clients/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [clients]
+      summary: Получить покупателя по id
+      responses:
+        "200":
+          description: Найдено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Client" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [clients]
+      summary: Изменить покупателя
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClientInput" }
+      responses:
+        "200":
+          description: Изменено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Client" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationFailed" }
+    delete:
+      tags: [clients]
+      summary: Удалить покупателя (логически; ?hard=true — физически)
+      parameters:
+        - $ref: "#/components/parameters/Hard"
+      responses:
+        "204": { description: Удалено }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /clients/{id}/restore:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    post:
+      tags: [clients]
+      summary: Восстановить логически удалённую запись
+      responses:
+        "200":
+          description: Восстановлено
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Client" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    Search:
+      name: search
+      in: query
+      description: Поиск подстрокой без учёта регистра
+      schema: { type: string }
+    Page:
+      name: page
+      in: query
+      description: Номер страницы, с 1
+      schema: { type: integer, default: 1, minimum: 1 }
+    Size:
+      name: size
+      in: query
+      description: Размер страницы, по умолчанию 10, максимум 100
+      schema: { type: integer, default: 10, minimum: 1, maximum: 100 }
+    Deleted:
+      name: deleted
+      in: query
+      description: "'1' — включать логически удалённые записи"
+      schema: { type: string, enum: ["1"] }
+    Hard:
+      name: hard
+      in: query
+      description: "'true' — физическое удаление вместо логического"
+      schema: { type: string, enum: ["true"] }
+
+  responses:
+    NotFound:
+      description: Объект не найден
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorMessage" }
+    ValidationFailed:
+      description: Ошибка валидации полей
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ValidationError" }
+    Conflict:
+      description: Нарушено ограничение целостности
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ConflictError" }
+
+  schemas:
+    ErrorMessage:
+      type: object
+      properties:
+        message: { type: string }
+
+    ValidationError:
+      type: object
+      properties:
+        message: { type: string, example: "Ошибка валидации" }
+        errors:
+          type: object
+          additionalProperties: { type: string }
+          example: { sku: "Артикул «KR-P9-001» уже используется" }
+
+    ConflictError:
+      type: object
+      properties:
+        message: { type: string }
+        count:
+          type: integer
+          description: Число активных записей, ссылающихся на удаляемую
+
+    BulkDeleteRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          items: { type: integer }
+
+    BulkDeleteResponse:
+      type: object
+      properties:
+        deleted: { type: integer }
+
+    Manufacturer:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, maxLength: 120 }
+        country: { type: string, maxLength: 60 }
+        founded: { type: integer, minimum: 1300, maximum: 2100 }
+        deletedAt: { type: string, format: date-time, nullable: true }
+    ManufacturerInput:
+      type: object
+      required: [name, country, founded]
+      properties:
+        name: { type: string, maxLength: 120 }
+        country: { type: string, maxLength: 60 }
+        founded: { type: integer, minimum: 1300, maximum: 2100 }
+    ManufacturerPage:
+      allOf:
+        - $ref: "#/components/schemas/PageEnvelope"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Manufacturer" }
+
+    Category:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, maxLength: 60 }
+        deletedAt: { type: string, format: date-time, nullable: true }
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 60 }
+    CategoryPage:
+      allOf:
+        - $ref: "#/components/schemas/PageEnvelope"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Category" }
+
+    Designer:
+      type: object
+      properties:
+        id: { type: integer }
+        fullName: { type: string, maxLength: 120 }
+        country: { type: string, maxLength: 60 }
+        activeSince: { type: integer, minimum: 1300, maximum: 2100 }
+        deletedAt: { type: string, format: date-time, nullable: true }
+    DesignerInput:
+      type: object
+      required: [fullName, country, activeSince]
+      properties:
+        fullName: { type: string, maxLength: 120 }
+        country: { type: string, maxLength: 60 }
+        activeSince: { type: integer, minimum: 1300, maximum: 2100 }
+    DesignerPage:
+      allOf:
+        - $ref: "#/components/schemas/PageEnvelope"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Designer" }
+
+    Client:
+      type: object
+      properties:
+        id: { type: integer }
+        fullName: { type: string, maxLength: 120 }
+        email: { type: string, format: email }
+        phone: { type: string, minLength: 5, maxLength: 20 }
+        licenseNumber: { type: string, minLength: 3, maxLength: 30 }
+        licenseIssuedAt: { type: string, format: date-time }
+        licenseExpiresAt: { type: string, format: date-time }
+        deletedAt: { type: string, format: date-time, nullable: true }
+    ClientInput:
+      type: object
+      required: [fullName, email, phone, licenseNumber, licenseIssuedAt, licenseExpiresAt]
+      properties:
+        fullName: { type: string, maxLength: 120 }
+        email: { type: string, format: email }
+        phone: { type: string, minLength: 5, maxLength: 20 }
+        licenseNumber: { type: string, minLength: 3, maxLength: 30 }
+        licenseIssuedAt: { type: string, format: date-time }
+        licenseExpiresAt: { type: string, format: date-time, description: "Строго позже licenseIssuedAt" }
+    ClientPage:
+      allOf:
+        - $ref: "#/components/schemas/PageEnvelope"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Client" }
+
+    Weapon:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string, maxLength: 120 }
+        sku: { type: string, minLength: 3, maxLength: 40 }
+        year: { type: integer, minimum: 1870, maximum: 2100 }
+        caliber: { type: string, maxLength: 30 }
+        manufacturerId: { type: integer }
+        categoryIds:
+          type: array
+          items: { type: integer }
+        designerIds:
+          type: array
+          items: { type: integer }
+        price: { type: integer, minimum: 1 }
+        stockTotal: { type: integer, minimum: 1 }
+        stockAvailable: { type: integer, minimum: 0, description: "Не больше stockTotal" }
+        deletedAt: { type: string, format: date-time, nullable: true }
+    WeaponInput:
+      type: object
+      required: [name, sku, year, caliber, manufacturerId, categoryIds, designerIds, price, stockTotal, stockAvailable]
+      properties:
+        name: { type: string, maxLength: 120 }
+        sku: { type: string, minLength: 3, maxLength: 40 }
+        year: { type: integer, minimum: 1870, maximum: 2100 }
+        caliber: { type: string, maxLength: 30 }
+        manufacturerId: { type: integer }
+        categoryIds:
+          type: array
+          items: { type: integer }
+          minItems: 1
+        designerIds:
+          type: array
+          items: { type: integer }
+          minItems: 1
+        price: { type: integer, minimum: 1 }
+        stockTotal: { type: integer, minimum: 1 }
+        stockAvailable: { type: integer, minimum: 0 }
+    WeaponPage:
+      allOf:
+        - $ref: "#/components/schemas/PageEnvelope"
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: "#/components/schemas/Weapon" }
+
+    PageEnvelope:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        total: { type: integer }
+        totalPages: { type: integer }
