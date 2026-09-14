@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"armory_api/internal/apperr"
+	"armory_api/internal/auth"
 	"armory_api/internal/httpx"
 )
 
@@ -31,7 +32,12 @@ type Client struct {
 	LicenseNumber    string     `json:"licenseNumber"`
 	LicenseIssuedAt  time.Time  `json:"licenseIssuedAt"`
 	LicenseExpiresAt time.Time  `json:"licenseExpiresAt"`
-	DeletedAt        *time.Time `json:"deletedAt"`
+	// ПР5: заполняются при регистрации покупателя (см. internal/auth) —
+	// у клиентов, заведённых раньше продавцом вручную, могут быть пустыми.
+	BirthDate      *time.Time `json:"birthDate"`
+	PassportSeries *string    `json:"passportSeries"`
+	PassportNumber *string    `json:"passportNumber"`
+	DeletedAt      *time.Time `json:"deletedAt"`
 }
 
 type input struct {
@@ -84,12 +90,12 @@ func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 
 var sortColumns = map[string]string{"fullName": "full_name", "email": "email"}
 
-const selectCols = "id, full_name, email, phone, license_number, license_issued_at, license_expires_at, deleted_at"
+const selectCols = "id, full_name, email, phone, license_number, license_issued_at, license_expires_at, birth_date, passport_series, passport_number, deleted_at"
 
 func scanClient(row pgx.Row) (*Client, error) {
 	var c Client
 	err := row.Scan(&c.ID, &c.FullName, &c.Email, &c.Phone, &c.LicenseNumber,
-		&c.LicenseIssuedAt, &c.LicenseExpiresAt, &c.DeletedAt)
+		&c.LicenseIssuedAt, &c.LicenseExpiresAt, &c.BirthDate, &c.PassportSeries, &c.PassportNumber, &c.DeletedAt)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -126,7 +132,7 @@ func (r *Repo) List(ctx context.Context, search string, includeDeleted bool, sor
 	for rows.Next() {
 		var c Client
 		if err := rows.Scan(&c.ID, &c.FullName, &c.Email, &c.Phone, &c.LicenseNumber,
-			&c.LicenseIssuedAt, &c.LicenseExpiresAt, &c.DeletedAt); err != nil {
+			&c.LicenseIssuedAt, &c.LicenseExpiresAt, &c.BirthDate, &c.PassportSeries, &c.PassportNumber, &c.DeletedAt); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, c)
@@ -195,16 +201,25 @@ func (r *Repo) DeleteMany(ctx context.Context, ids []int) (int, error) {
 
 // --- HTTP handlers ---
 
-func Routes(pool *pgxpool.Pool) chi.Router {
+// clients хранит персональные данные (паспорт, лицензия) — в отличие от
+// каталога оружия, покупателю видна не вся коллекция, а только собственная
+// запись (get() проверяет это сам, т.к. решение зависит от id в пути, а не
+// только от роли — RequireRole тут не подходит).
+func Routes(pool *pgxpool.Pool, authRepo *auth.Repo) chi.Router {
 	repo := NewRepo(pool)
 	r := chi.NewRouter()
-	r.Get("/", list(repo))
-	r.Post("/", create(repo))
-	r.Post("/bulk-delete", bulkDelete(repo))
+	r.Use(authRepo.RequireAuth)
 	r.Get("/{id}", get(repo))
-	r.Put("/{id}", update(repo))
-	r.Delete("/{id}", del(repo))
-	r.Post("/{id}/restore", restore(repo))
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireRole(auth.RoleSeller))
+		r.Get("/", list(repo))
+		r.Post("/", create(repo))
+		r.Post("/bulk-delete", bulkDelete(repo))
+		r.Put("/{id}", update(repo))
+		r.Delete("/{id}", del(repo))
+	})
+	r.With(auth.RequireRole(auth.RoleAdmin)).Post("/{id}/restore", restore(repo))
 	return r
 }
 
@@ -227,6 +242,11 @@ func get(repo *Repo) http.HandlerFunc {
 		id, ok := httpx.PathID(req, chi.URLParam(req, "id"))
 		if !ok {
 			apperr.Write(w, apperr.BadRequest("Некорректный идентификатор"))
+			return
+		}
+		user := auth.UserFromRequest(req)
+		if user.Role == auth.RoleBuyer && (user.ClientID == nil || *user.ClientID != id) {
+			apperr.Write(w, apperr.Forbidden("Нельзя посмотреть чужую карточку покупателя"))
 			return
 		}
 		c, err := repo.Get(req.Context(), id)
@@ -299,6 +319,10 @@ func del(repo *Repo) http.HandlerFunc {
 		id, ok := httpx.PathID(req, chi.URLParam(req, "id"))
 		if !ok {
 			apperr.Write(w, apperr.BadRequest("Некорректный идентификатор"))
+			return
+		}
+		if appErr := auth.GuardHardDelete(req); appErr != nil {
+			apperr.Write(w, appErr)
 			return
 		}
 		hard := req.URL.Query().Get("hard") == "true"

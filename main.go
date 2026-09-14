@@ -17,12 +17,14 @@ import (
 	"github.com/rs/cors"
 
 	"armory_api/internal/apperr"
+	"armory_api/internal/auth"
 	"armory_api/internal/categories"
 	"armory_api/internal/clients"
 	"armory_api/internal/dbx"
 	"armory_api/internal/designers"
 	"armory_api/internal/manufacturers"
 	"armory_api/internal/openapi"
+	"armory_api/internal/orders"
 	"armory_api/internal/weapons"
 )
 
@@ -81,11 +83,17 @@ func main() {
 		apperr.WriteJSON(w, http.StatusOK, map[string]string{"message": "Данные восстановлены в исходное состояние"})
 	})
 
-	r.Mount("/api/weapons", weapons.Routes(pool))
-	r.Mount("/api/manufacturers", manufacturers.Routes(pool))
-	r.Mount("/api/categories", categories.Routes(pool))
-	r.Mount("/api/designers", designers.Routes(pool))
-	r.Mount("/api/clients", clients.Routes(pool))
+	authRepo := auth.NewRepo(pool)
+	r.Mount("/api/auth", auth.AuthRoutes(authRepo))
+	r.Mount("/api/users", auth.UserRoutes(authRepo))
+	r.With(authRepo.RequireAuth, auth.RequireRole(auth.RoleAdmin)).Get("/api/admin/stats", auth.StatsHandler(pool))
+
+	r.Mount("/api/weapons", weapons.Routes(pool, authRepo))
+	r.Mount("/api/manufacturers", manufacturers.Routes(pool, authRepo))
+	r.Mount("/api/categories", categories.Routes(pool, authRepo))
+	r.Mount("/api/designers", designers.Routes(pool, authRepo))
+	r.Mount("/api/clients", clients.Routes(pool, authRepo))
+	r.Mount("/api/orders", orders.Routes(pool, authRepo))
 
 	r.Get("/api/openapi.yaml", openapi.SpecHandler)
 	r.Get("/docs", openapi.DocsHandler)

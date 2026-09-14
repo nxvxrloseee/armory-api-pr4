@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"armory_api/internal/apperr"
+	"armory_api/internal/auth"
 	"armory_api/internal/httpx"
 )
 
@@ -198,16 +199,21 @@ func isForeignKeyViolation(err error) bool {
 
 // --- HTTP handlers ---
 
-func Routes(pool *pgxpool.Pool) chi.Router {
+func Routes(pool *pgxpool.Pool, authRepo *auth.Repo) chi.Router {
 	repo := NewRepo(pool)
 	r := chi.NewRouter()
+	r.Use(authRepo.RequireAuth)
 	r.Get("/", list(repo))
-	r.Post("/", create(repo))
-	r.Post("/bulk-delete", bulkDelete(repo))
 	r.Get("/{id}", get(repo))
-	r.Put("/{id}", update(repo))
-	r.Delete("/{id}", del(repo))
-	r.Post("/{id}/restore", restore(repo))
+
+	r.Group(func(r chi.Router) {
+		r.Use(auth.RequireRole(auth.RoleSeller))
+		r.Post("/", create(repo))
+		r.Post("/bulk-delete", bulkDelete(repo))
+		r.Put("/{id}", update(repo))
+		r.Delete("/{id}", del(repo))
+	})
+	r.With(auth.RequireRole(auth.RoleAdmin)).Post("/{id}/restore", restore(repo))
 	return r
 }
 
@@ -302,6 +308,10 @@ func del(repo *Repo) http.HandlerFunc {
 		id, ok := httpx.PathID(req, chi.URLParam(req, "id"))
 		if !ok {
 			apperr.Write(w, apperr.BadRequest("Некорректный идентификатор"))
+			return
+		}
+		if appErr := auth.GuardHardDelete(req); appErr != nil {
+			apperr.Write(w, appErr)
 			return
 		}
 		hard := req.URL.Query().Get("hard") == "true"

@@ -35,6 +35,54 @@ CREATE TABLE IF NOT EXISTS clients (
     deleted_at timestamptz
 );
 
+-- ПР5: покупатель регистрируется под собственным логином, и при регистрации
+-- заполняет те же личные данные, что раньше вносил только продавец через
+-- форму клиента — отсюда три новых поля, нужных для выдачи оружия.
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS birth_date date;
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS passport_series varchar(10);
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS passport_number varchar(20);
+
+-- ПР5: пользователи приложения. Роль покупателя всегда привязана к своей
+-- записи в clients (client_id) — это и есть "покупатель — это клиент,
+-- получивший логин"; у продавца/администратора client_id пустой.
+CREATE TABLE IF NOT EXISTS app_users (
+    id serial PRIMARY KEY,
+    username varchar(60) NOT NULL,
+    password_hash text NOT NULL,
+    full_name varchar(120) NOT NULL,
+    role varchar(20) NOT NULL CHECK (role IN ('buyer', 'seller', 'admin')),
+    client_id integer REFERENCES clients(id),
+    deleted_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_app_users_username_lower ON app_users (lower(username));
+
+-- Непрозрачные (не JWT) токены: проще для учебного проекта — не нужна
+-- подпись/библиотека, "разлогинить" — это просто удалить строку. access_token
+-- живёт недолго (ACCESS_TOKEN_TTL_SECONDS), refresh_token — неделю.
+CREATE TABLE IF NOT EXISTS sessions (
+    access_token varchar(64) PRIMARY KEY,
+    refresh_token varchar(64) NOT NULL,
+    user_id integer NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    access_expires_at timestamptz NOT NULL,
+    refresh_expires_at timestamptz NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_sessions_refresh_token ON sessions (refresh_token);
+
+-- Заказ — недостающая в ПР2–4 связь "покупатель ↔ оружие" (аналог Loan из
+-- КОНТРАКТ-API.md, только на покупку, а не на выдачу во временное
+-- пользование). serial_number проставляется продавцом при выдаче, не при
+-- оформлении заказа — своей единицы товара на складе система не ведёт,
+-- только общий остаток на модели (weapons.stock_available).
+CREATE TABLE IF NOT EXISTS orders (
+    id serial PRIMARY KEY,
+    client_id integer NOT NULL REFERENCES clients(id),
+    weapon_id integer NOT NULL REFERENCES weapons(id),
+    status varchar(20) NOT NULL DEFAULT 'ordered' CHECK (status IN ('ordered', 'picked_up', 'cancelled')),
+    serial_number varchar(60),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    picked_up_at timestamptz
+);
+
 CREATE TABLE IF NOT EXISTS weapons (
     id serial PRIMARY KEY,
     name varchar(120) NOT NULL,
@@ -137,8 +185,29 @@ INSERT INTO clients (id, full_name, email, phone, license_number, license_issued
     (3, 'Сергей Титов', 's.titov@example.com', '+7 900 333-44-55', 'RU-78-001102', '2019-01-15T00:00:00Z', '2024-01-15T00:00:00Z')
 ON CONFLICT (id) DO NOTHING;
 
+UPDATE clients SET birth_date = '1990-05-14', passport_series = '4510', passport_number = '123456'
+    WHERE id = 1 AND birth_date IS NULL;
+
+-- ПР5: тестовые учётки на все три роли (пароли — в README). Покупатель
+-- привязан к уже существующей записи клиента (id=1) — так у него сразу
+-- есть за что смотреть в "моих заказах" при первом же запуске.
+INSERT INTO app_users (id, username, password_hash, full_name, role, client_id) VALUES
+    (1, 'pokupatel', '$2a$10$BhfRso0pjCKSOTPGbfh4l.8kO/y71SvJ/CNPrFeIYLyUAOoYD7Lea', 'Андрей Волков', 'buyer', 1),
+    (2, 'prodavec', '$2a$10$I3dJnbQIG4eSm.Ad5TXvbOcqFxey4aguxLkZrdpsKf5fZ8J3tNavi', 'Ольга Смирнова', 'seller', NULL),
+    (3, 'admin', '$2a$10$3CsXyOQFe4qlDYLqYVMwOuKq0tPos5Cp74lAGEzPW56Crf6tD/Pvq', 'Администратор', 'admin', NULL)
+ON CONFLICT (id) DO NOTHING;
+
+-- Один уже выданный заказ — чтобы "мои заказы" и статистика администратора
+-- не были пустыми на первом запуске. Активный (ordered) заказ намеренно не
+-- сеется — иначе stock_available модели пришлось бы согласовывать вручную.
+INSERT INTO orders (id, client_id, weapon_id, status, serial_number, picked_up_at) VALUES
+    (1, 2, 6, 'picked_up', 'FO-M9C-030-SN-0007', now() - interval '3 days')
+ON CONFLICT (id) DO NOTHING;
+
 SELECT setval(pg_get_serial_sequence('manufacturers', 'id'), GREATEST((SELECT max(id) FROM manufacturers), 1));
 SELECT setval(pg_get_serial_sequence('categories', 'id'), GREATEST((SELECT max(id) FROM categories), 1));
 SELECT setval(pg_get_serial_sequence('designers', 'id'), GREATEST((SELECT max(id) FROM designers), 1));
 SELECT setval(pg_get_serial_sequence('weapons', 'id'), GREATEST((SELECT max(id) FROM weapons), 1));
 SELECT setval(pg_get_serial_sequence('clients', 'id'), GREATEST((SELECT max(id) FROM clients), 1));
+SELECT setval(pg_get_serial_sequence('app_users', 'id'), GREATEST((SELECT max(id) FROM app_users), 1));
+SELECT setval(pg_get_serial_sequence('orders', 'id'), GREATEST((SELECT max(id) FROM orders), 1));

@@ -16,6 +16,8 @@ const (
 	KindConflict
 	KindNotFound
 	KindBadRequest
+	KindUnauthorized
+	KindForbidden
 )
 
 // AppError is the only error type handlers are expected to construct
@@ -45,6 +47,14 @@ func BadRequest(message string) *AppError {
 	return &AppError{Kind: KindBadRequest, Message: message}
 }
 
+func Unauthorized(message string) *AppError {
+	return &AppError{Kind: KindUnauthorized, Message: message}
+}
+
+func Forbidden(message string) *AppError {
+	return &AppError{Kind: KindForbidden, Message: message}
+}
+
 func statusFor(k Kind) int {
 	switch k {
 	case KindValidation:
@@ -55,6 +65,10 @@ func statusFor(k Kind) int {
 		return http.StatusNotFound
 	case KindBadRequest:
 		return http.StatusBadRequest
+	case KindUnauthorized:
+		return http.StatusUnauthorized
+	case KindForbidden:
+		return http.StatusForbidden
 	default:
 		return http.StatusInternalServerError
 	}
